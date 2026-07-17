@@ -1,0 +1,152 @@
+# Rule specs cho phân loại (mục 10.1) — sửa file này qua PR, không cần deploy lại code.
+# Mỗi rule: điểm = 3×(topic match) + 2×(keyword match) + 10×(known repo). Điểm >= threshold → gán category.
+
+- category: foundation-models
+  any_topics: [llama, foundation-models, large-language-models, pretrained-models, diffusion-models, stable-diffusion]
+  any_keywords: ["foundation model", "pretrained model", "open-weight", "weights release", "language model family"]
+  known_repos: [meta-llama/llama, QwenLM/Qwen, google-deepmind/gemma, deepseek-ai/DeepSeek-V3, mistralai/mistral-inference]
+  threshold: 3
+
+- category: agent-framework
+  any_topics: [agents, ai-agents, multi-agent, agentic-ai, agent-framework, autonomous-agents]
+  any_keywords: ["agent framework", "multi-agent", "agent orchestration", "autonomous agent", "build agents", "agentic workflow"]
+  known_repos: [langchain-ai/langgraph, microsoft/autogen, crewAIInc/crewAI, openai/openai-agents-python, google/adk-python, Significant-Gravitas/AutoGPT]
+  threshold: 3
+
+- category: llm-framework
+  any_topics: [langchain, llm-framework, llm-apps]
+  any_keywords: ["llm framework", "llm application", "llm app framework", "orchestration framework", "prompt pipeline"]
+  known_repos: [langchain-ai/langchain, run-llama/llama_index, deepset-ai/haystack, stanfordnlp/dspy]
+  threshold: 3
+
+- category: mcp
+  any_topics: [mcp, model-context-protocol, mcp-server, mcp-client]
+  any_keywords: ["mcp server", "mcp client", "model context protocol"]
+  known_repos: [modelcontextprotocol/servers]
+  threshold: 3
+
+- category: rag
+  any_topics: [rag, retrieval-augmented-generation, semantic-search]
+  any_keywords: ["retrieval-augmented", "retrieval augmented", " rag ", "rag pipeline", "rag engine", "document q&a", "chat with your"]
+  known_repos: [infiniflow/ragflow, weaviate/verba]
+  threshold: 3
+
+- category: vector-database
+  any_topics: [vector-database, vector-search, embeddings-database, similarity-search]
+  any_keywords: ["vector database", "vector store", "vector search", "similarity search", "embedding database"]
+  known_repos: [qdrant/qdrant, milvus-io/milvus, chroma-core/chroma, weaviate/weaviate]
+  threshold: 3
+
+- category: knowledge-graph
+  any_topics: [knowledge-graph, graph-rag, graphrag]
+  any_keywords: ["knowledge graph", "graph rag", "graphrag"]
+  known_repos: [microsoft/graphrag]
+  threshold: 3
+
+- category: ai-ide
+  any_topics: [ai-ide, code-editor]
+  any_keywords: ["ai ide", "ai code editor", "ai-powered editor", "ai-native editor"]
+  known_repos: [voideditor/void]
+  threshold: 3
+
+- category: ai-coding
+  any_topics: [ai-coding, coding-assistant, code-generation, copilot, coding-agent]
+  any_keywords: ["coding assistant", "code generation", "coding agent", "pair programmer", "code completion", "software engineering agent"]
+  known_repos: [cline/cline, All-Hands-AI/OpenHands, aider-ai/aider, continuedev/continue]
+  threshold: 3
+
+- category: ai-evaluation
+  any_topics: [llm-evaluation, evaluation, benchmarks, llm-testing]
+  any_keywords: ["llm evaluation", "eval framework", "evaluate llm", "benchmark llm", "llm testing", "prompt testing"]
+  known_repos: [confident-ai/deepeval, promptfoo/promptfoo, explodinggradients/ragas]
+  threshold: 3
+
+- category: ai-observability
+  any_topics: [llm-observability, observability, tracing, monitoring]
+  any_keywords: ["llm observability", "llm monitoring", "tracing llm", "llm analytics", "token usage tracking"]
+  known_repos: [langfuse/langfuse, Arize-ai/phoenix, traceloop/openllmetry]
+  threshold: 4
+
+- category: ai-security
+  any_topics: [llm-security, ai-security, prompt-injection, guardrails]
+  any_keywords: ["prompt injection", "llm security", "ai security", "guardrails", "jailbreak detection", "model red team"]
+  known_repos: [guardrails-ai/guardrails, NVIDIA/NeMo-Guardrails, protectai/llm-guard]
+  threshold: 3
+
+- category: ai-infrastructure
+  any_topics: [ai-infrastructure, distributed-training, gpu-cluster, ray]
+  any_keywords: ["ai infrastructure", "distributed training", "training infrastructure", "gpu cluster", "compute orchestration"]
+  known_repos: [ray-project/ray, skypilot-org/skypilot]
+  threshold: 4
+
+- category: ai-deployment
+  any_topics: [model-deployment, ai-deployment]
+  any_keywords: ["deploy model", "model deployment", "deploy llm", "ship ml", "ml in production"]
+  known_repos: [bentoml/BentoML]
+  threshold: 4
+
+- category: ai-serving
+  any_topics: [model-serving, llm-serving, inference-server]
+  any_keywords: ["model serving", "llm serving", "inference server", "serving engine", "openai-compatible api"]
+  known_repos: [vllm-project/vllm, sgl-project/sglang, ollama/ollama, huggingface/text-generation-inference]
+  threshold: 3
+
+- category: inference
+  any_topics: [inference, quantization, llamacpp, onnx, tensorrt]
+  any_keywords: ["inference engine", "fast inference", "quantization", "quantized", "run llm locally", "on-device"]
+  known_repos: [ggml-org/llama.cpp, microsoft/onnxruntime, unslothai/unsloth]
+  threshold: 3
+
+- category: mlops
+  any_topics: [mlops, experiment-tracking, model-registry, ml-pipeline]
+  any_keywords: ["mlops", "experiment tracking", "model registry", "ml pipeline", "feature store"]
+  known_repos: [mlflow/mlflow, kedro-org/kedro, zenml-io/zenml, iterative/dvc]
+  threshold: 3
+
+- category: llmops
+  any_topics: [llmops, prompt-management]
+  any_keywords: ["llmops", "prompt management", "prompt versioning", "llm gateway", "llm proxy", "llm router"]
+  known_repos: [BerriAI/litellm, langgenius/dify, FlowiseAI/Flowise]
+  threshold: 3
+
+- category: fine-tuning
+  any_topics: [fine-tuning, lora, peft, rlhf, dpo]
+  any_keywords: ["fine-tune", "fine tuning", "finetune", "lora", "qlora", "peft", "rlhf", "instruction tuning"]
+  known_repos: [hiyouga/LLaMA-Factory, axolotl-ai-cloud/axolotl, huggingface/peft, huggingface/trl]
+  threshold: 3
+
+- category: synthetic-data
+  any_topics: [synthetic-data, data-generation]
+  any_keywords: ["synthetic data", "data generation", "generate training data", "data augmentation"]
+  known_repos: [argilla-io/distilabel]
+  threshold: 3
+
+- category: dataset
+  any_topics: [dataset, datasets, data-labeling, annotation]
+  any_keywords: ["dataset", "data labeling", "annotation tool", "data curation"]
+  known_repos: [huggingface/datasets, HumanSignal/label-studio]
+  threshold: 4
+
+- category: computer-vision
+  any_topics: [computer-vision, object-detection, image-segmentation, ocr, image-generation]
+  any_keywords: ["computer vision", "object detection", "image segmentation", "ocr", "image recognition", "video understanding"]
+  known_repos: [ultralytics/ultralytics, opencv/opencv, roboflow/supervision]
+  threshold: 3
+
+- category: nlp
+  any_topics: [nlp, natural-language-processing, text-classification, named-entity-recognition]
+  any_keywords: ["natural language processing", "text classification", "named entity", "tokenizer", "text embedding"]
+  known_repos: [huggingface/transformers, explosion/spaCy]
+  threshold: 4
+
+- category: speech-voice
+  any_topics: [speech-recognition, text-to-speech, speech-to-text, voice-assistant, asr, tts, voice-ai]
+  any_keywords: ["speech recognition", "text to speech", "speech to text", "voice assistant", "voice agent", "voice ai", "asr", "tts", "voice clone"]
+  known_repos: [openai/whisper, coqui-ai/TTS, fishaudio/fish-speech, livekit/agents]
+  threshold: 3
+
+- category: robotics
+  any_topics: [robotics, embodied-ai, ros]
+  any_keywords: ["robotics", "embodied", "robot learning", "manipulation", "humanoid"]
+  known_repos: [huggingface/lerobot]
+  threshold: 3

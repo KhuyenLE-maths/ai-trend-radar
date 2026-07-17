@@ -1,0 +1,66 @@
+services:
+  # Web Frontend (Next.js)
+  - type: web
+    name: ai-trend-radar-web
+    env: docker
+    dockerfilePath: ./frontend/Dockerfile
+    plan: free
+    envVars:
+      - key: API_URL_INTERNAL
+        value: http://api:8000
+    healthCheckPath: /
+    numInstances: 1
+
+  # API Backend (FastAPI)
+  - type: web
+    name: ai-trend-radar-api
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-trend-radar-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromDatabase:
+          name: ai-trend-radar-redis
+          property: connectionString
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+    healthCheckPath: /docs
+    numInstances: 1
+
+  # Worker (Python Scheduler)
+  - type: background
+    name: ai-trend-radar-worker
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    plan: free
+    command: python -m app.pipeline.scheduler
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-trend-radar-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromDatabase:
+          name: ai-trend-radar-redis
+          property: connectionString
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+databases:
+  - name: ai-trend-radar-postgres
+    ipAllowList: []
+    plan: free
+    postgresVersion: "15"
+
+  - name: ai-trend-radar-redis
+    plan: free

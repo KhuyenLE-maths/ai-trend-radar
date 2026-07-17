@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+
+body {
+  @apply bg-surface text-zinc-200 antialiased;
+}
+
+.card {
+  @apply bg-panel border border-edge rounded-xl;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium bg-accent/10 text-accent border border-accent/20;
+}
+
+.chip {
+  @apply inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] text-zinc-400 bg-zinc-800/60 border border-zinc-700/50;
+}
+
+input, select {
+  @apply bg-panel border border-edge rounded-lg px-3 py-1.5 text-sm text-zinc-200 outline-none focus:border-accent/60;
+}
