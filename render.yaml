@@ -1,29 +1,39 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Gói free: không có background worker, nên pipeline được kích hoạt hằng ngày
+# bởi GitHub Actions (.github/workflows/daily-crawl.yml) qua POST /api/v1/admin/crawl.
 services:
   # Web Frontend (Next.js)
   - type: web
     name: ai-trend-radar-web
-    env: docker
-    dockerfilePath: ./frontend/Dockerfile
+    runtime: docker
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile
     plan: free
+    region: singapore
     envVars:
+      # Service free không nhận traffic private network → gọi API qua URL public.
+      # Nếu Render cấp subdomain khác, sửa giá trị này trên dashboard.
       - key: API_URL_INTERNAL
-        value: http://api:8000
+        value: https://ai-trend-radar-api.onrender.com
     healthCheckPath: /
-    numInstances: 1
 
   # API Backend (FastAPI)
   - type: web
     name: ai-trend-radar-api
-    env: docker
-    dockerfilePath: ./backend/Dockerfile
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
     plan: free
+    region: singapore
+    healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
         fromDatabase:
           name: ai-trend-radar-postgres
           property: connectionString
       - key: REDIS_URL
-        fromDatabase:
+        fromService:
+          type: keyvalue
           name: ai-trend-radar-redis
           property: connectionString
       - key: GITHUB_TOKEN
@@ -32,35 +42,24 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
-    healthCheckPath: /docs
-    numInstances: 1
+      - key: SUMMARY_MODEL
+        value: claude-haiku-4-5
+      - key: SUMMARY_DAILY_LIMIT
+        value: "200"
 
-  # Worker (Python Scheduler)
-  - type: background
-    name: ai-trend-radar-worker
-    env: docker
-    dockerfilePath: ./backend/Dockerfile
+  # Redis cache + pipeline lock
+  - type: keyvalue
+    name: ai-trend-radar-redis
     plan: free
-    command: python -m app.pipeline.scheduler
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: ai-trend-radar-postgres
-          property: connectionString
-      - key: REDIS_URL
-        fromDatabase:
-          name: ai-trend-radar-redis
-          property: connectionString
-      - key: GITHUB_TOKEN
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
+    region: singapore
+    ipAllowList: []          # chỉ cho kết nối nội bộ
+    maxmemoryPolicy: allkeys-lru
 
 databases:
   - name: ai-trend-radar-postgres
+    plan: free
+    region: singapore
+    postgresMajorVersion: "16"
+    databaseName: radar
+    user: radar
     ipAllowList: []
-    plan: free
-    postgresVersion: "15"
-
-  - name: ai-trend-radar-redis
-    plan: free
