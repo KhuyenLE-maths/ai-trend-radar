@@ -6,8 +6,11 @@ services:
   - type: web
     name: ai-trend-radar-web
     runtime: docker
-    rootDir: frontend
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    buildFilter:
+      paths:
+        - frontend/**
     plan: free
     region: singapore
     envVars:
@@ -21,8 +24,11 @@ services:
   - type: web
     name: ai-trend-radar-api
     runtime: docker
-    rootDir: backend
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    buildFilter:
+      paths:
+        - backend/**
     plan: free
     region: singapore
     healthCheckPath: /healthz
