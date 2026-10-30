@@ -15,7 +15,7 @@ def test_deleted_repos_do_not_count():
     assert classify_run({"track": {"updated": 95, "failed": 0, "deleted": 40}}, set(), None) == "success"
 
 
-@pytest.mark.parametrize("step", ["discover", "trending", "hn", "categorize", "rank"])
+@pytest.mark.parametrize("step", ["discover", "trending", "hn", "categorize", "rank", "summarize"])
 def test_step_failure_is_partial(step):
     assert classify_run({"track": {"updated": 10, "failed": 0}}, {step}, None) == "partial"
 

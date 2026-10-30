@@ -13,6 +13,7 @@ from app.pipeline.steps.filter_ai import relevance_score
 log = logging.getLogger("pipeline.track")
 
 BATCH = 25
+MAX_EMPTY_BATCHES = 5  # mất mạng/GitHub sập: dừng sớm thay vì thử hết mọi lô
 
 FRAGMENT = """
   databaseId nameWithOwner description stargazerCount forkCount
@@ -73,7 +74,7 @@ async def _fetch_nodes(names: list[str], nodes: dict, deleted: set[str], failed:
     """
     try:
         data, errors = await graphql(_build_query(names))
-    except (GitHubRateLimited, httpx.HTTPStatusError) as e:  # chia nhỏ không giúp được
+    except (GitHubRateLimited, httpx.HTTPStatusError, httpx.TransportError) as e:  # chia nhỏ không giúp được
         log.warning("graphql %s repo fail: %s", len(names), e)
         failed.update(names)
         return
@@ -117,7 +118,7 @@ async def track(pool: asyncpg.Pool, extra_names: set[str] | None = None) -> dict
         if n.lower() not in known:
             names.append(n)
 
-    updated = snapshots = rejected = failed = deleted = 0
+    updated = snapshots = rejected = failed = deleted = empty_batches = 0
     async with pool.acquire() as conn:
         for i in range(0, len(names), BATCH):
             batch = names[i : i + BATCH]
@@ -127,6 +128,12 @@ async def track(pool: asyncpg.Pool, extra_names: set[str] | None = None) -> dict
             await _fetch_nodes(batch, nodes, gone, unresolved)
             deleted += len(gone)  # repo bị xoá/private — giữ bản ghi cũ
             failed += len(unresolved)
+            empty_batches = 0 if nodes or gone else empty_batches + 1
+            if empty_batches >= MAX_EMPTY_BATCHES:
+                remaining = max(len(names) - (i + BATCH), 0)
+                log.error("track dừng sớm: %s lô liên tiếp không có dữ liệu", empty_batches)
+                failed += remaining
+                break
             for fn, node in nodes.items():
                 try:
                     topics = [t["topic"]["name"].lower() for t in node["repositoryTopics"]["nodes"]]

@@ -124,6 +124,10 @@ async def _pipeline(pool, run_id: int, started_at: datetime, archive: RawArchive
 
     # 7. AI Summary (tuỳ chọn)
     await step("summarize", summarize.summarize(pool))
+    summary = stats["summarize"]
+    if summary.get("failed") and not summary.get("summarized"):
+        errors.append(f"summarize: mọi lần tóm tắt đều lỗi ({summary['failed']})")
+        failed_steps.add("summarize")
 
     # 8. Invalidate cache
     stats["cache_invalidated"] = await invalidate_all()

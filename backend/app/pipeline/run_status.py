@@ -1,6 +1,6 @@
 """Quyết định trạng thái lần crawl từ kết quả các bước."""
 
-PARTIAL_STEPS = {"discover", "trending", "hn", "categorize", "rank", "run_snapshots"}
+PARTIAL_STEPS = {"discover", "trending", "hn", "categorize", "rank", "run_snapshots", "summarize"}
 
 
 def classify_run(stats: dict, failed_steps: set[str], raw_error: str | None) -> str:

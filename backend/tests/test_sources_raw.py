@@ -93,6 +93,27 @@ async def test_summarize_records_model_response(pool, raw_dir, archive, mock_htt
     assert records(raw_dir, "anthropic")[0]["body"] == '{"id": "msg_1"}'
 
 
+async def test_summarize_stops_on_invalid_key(pool, raw_dir, archive, mock_http, monkeypatch):
+    for i in (1, 2, 3):
+        await pool.execute(
+            """INSERT INTO repositories (github_id, full_name, owner, name, url, hot_score)
+               VALUES ($1,$2,'o','r','u',5)""", i, f"o/r{i}")
+    mock_http["/readme"] = (200, "hello")
+    attempts = []
+
+    async def create(**kw):
+        attempts.append(1)
+        response = httpx.Response(401, request=httpx.Request("POST", "https://x"))
+        raise anthropic.AuthenticationError("invalid x-api-key", response=response, body=None)
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "k")
+    monkeypatch.setattr(
+        anthropic, "AsyncAnthropic",
+        lambda api_key: SimpleNamespace(messages=SimpleNamespace(create=create)))
+    result = await summarize.summarize(pool)
+    assert len(attempts) == 1 and result == {"summarized": 0, "failed": 1}
+
+
 async def test_check_github_token_401_raises(mock_http):
     mock_http["/rate_limit"] = (401, "bad")
     with pytest.raises(github_client.GitHubAuthError, match="GITHUB_TOKEN"):

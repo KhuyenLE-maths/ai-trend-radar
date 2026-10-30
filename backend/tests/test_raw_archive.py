@@ -46,6 +46,12 @@ def test_truncated_file_readable_up_to_last_record(raw_dir):
     assert read_records_tolerant(path)[-1]["body"] == "two"
 
 
+def test_reader_drops_torn_last_line(raw_dir):
+    path = raw_dir / "x.jsonl.gz"
+    path.write_bytes(gzip.compress(b'{"body": "one"}\n{"body": "tw'))
+    assert read_records_tolerant(path) == [{"body": "one"}]
+
+
 def test_record_raw_without_archive_is_noop():
     record_raw("hackernews", {}, 200, "x")
 

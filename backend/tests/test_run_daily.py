@@ -149,3 +149,28 @@ async def test_lock_stays_held_during_long_run(pool, calls, monkeypatch):
     await mod.run_daily()
     assert held == [1]
     assert await cache.acquire_pipeline_lock()
+
+
+async def test_total_summary_failure_is_partial_and_named(pool, calls, monkeypatch):
+    async def summarize(pool):
+        return {"summarized": 0, "failed": 1}
+    monkeypatch.setattr(mod.summarize, "summarize", summarize)
+    await mod.run_daily()
+    run = await last_run(pool)
+    assert run["status"] == "partial" and "summarize" in run["error"]
+
+
+async def test_some_summary_failures_stay_success(pool, calls, monkeypatch):
+    async def summarize(pool):
+        return {"summarized": 2, "failed": 1}
+    monkeypatch.setattr(mod.summarize, "summarize", summarize)
+    await mod.run_daily()
+    assert (await last_run(pool))["status"] == "success"
+
+
+async def test_no_anthropic_key_stays_success(pool, calls, monkeypatch):
+    async def summarize(pool):
+        return {"skipped": True}
+    monkeypatch.setattr(mod.summarize, "summarize", summarize)
+    await mod.run_daily()
+    assert (await last_run(pool))["status"] == "success"

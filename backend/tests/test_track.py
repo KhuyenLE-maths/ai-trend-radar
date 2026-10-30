@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import httpx
+
 from app.pipeline.sources import github_graphql
 from app.pipeline.sources.github_client import GitHubError, GitHubRateLimited
 
@@ -128,3 +130,32 @@ async def test_rate_limit_is_not_split(pool, monkeypatch):
     monkeypatch.setattr(github_graphql, "graphql", limited)
     result = await github_graphql.track(pool)
     assert len(calls) == 1 and result["failed"] == 2
+
+
+async def test_transport_error_is_not_split(pool, monkeypatch):
+    await insert_repo(pool, 1)
+    await insert_repo(pool, 2)
+    calls = []
+
+    async def down(query):
+        calls.append(query)
+        raise httpx.ConnectError("no network")
+
+    monkeypatch.setattr(github_graphql, "graphql", down)
+    result = await github_graphql.track(pool)
+    assert len(calls) == 1 and result["failed"] == 2
+
+
+async def test_track_gives_up_after_consecutive_empty_batches(pool, monkeypatch):
+    for i in range(1, 201):
+        await insert_repo(pool, i)
+    calls = []
+
+    async def down(query):
+        calls.append(query)
+        raise httpx.ConnectError("no network")
+
+    monkeypatch.setattr(github_graphql, "graphql", down)
+    result = await github_graphql.track(pool)
+    assert len(calls) == github_graphql.MAX_EMPTY_BATCHES
+    assert result["failed"] == 200 and result["updated"] == 0

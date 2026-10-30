@@ -142,6 +142,11 @@ async def summarize(pool: asyncpg.Pool) -> dict:
                     repo["id"], readme_hash, settings.summary_model, json.dumps(content),
                 )
                 done += 1
+            except anthropic.AuthenticationError as e:  # key hỏng: gọi tiếp cũng vô ích
+                log.error("summarize dừng: ANTHROPIC_API_KEY không hợp lệ: %s", e)
+                record_raw("anthropic", request, None, str(e))
+                failed += 1
+                break
             except Exception as e:
                 log.warning("summarize %s fail: %s", repo["full_name"], e)
                 record_raw("anthropic", request, None, str(e))

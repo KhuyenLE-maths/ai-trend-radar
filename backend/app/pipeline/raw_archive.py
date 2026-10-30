@@ -105,4 +105,5 @@ def read_records_tolerant(path: Path) -> list[dict]:
     """Đọc file thô, kể cả file dở do tiến trình bị kill giữa chừng."""
     decoder = zlib.decompressobj(zlib.MAX_WBITS | 16)
     text = decoder.decompress(Path(path).read_bytes())
-    return [json.loads(line) for line in text.splitlines()]
+    complete = text[: text.rfind(b"\n") + 1]  # bỏ dòng cuối bị cắt dở
+    return [json.loads(line) for line in complete.splitlines()]
