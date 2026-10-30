@@ -48,6 +48,12 @@ async def test_token_never_in_raw_files(raw_dir, archive, mock_http, monkeypatch
     assert "readme" in text and "ghp_SECRET" not in text
 
 
+async def test_graphql_returns_partial_errors(mock_http):
+    mock_http["/graphql"] = (200, '{"data": {"r0": null}, "errors": [{"type": "NOT_FOUND", "path": ["r0"]}]}')
+    data, errors = await github_client.graphql("query {}")
+    assert data == {"r0": None} and errors[0]["type"] == "NOT_FOUND"
+
+
 async def test_trending_records_html_and_raises_when_all_fail(raw_dir, archive, mock_http):
     mock_http["github.com/trending"] = (500, "<html>down</html>")
     with pytest.raises(github_trending.TrendingUnavailable):

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from app.core import cache
@@ -131,3 +133,19 @@ async def test_unexpected_crash_is_failed(pool, calls, monkeypatch):
     await mod.run_daily()
     run = await last_run(pool)
     assert run["status"] == "failed" and "boom" in run["error"]
+
+
+async def test_lock_stays_held_during_long_run(pool, calls, monkeypatch):
+    held = []
+
+    async def track(pool, extra_names=None):
+        await cache.get_redis().delete("pipeline:lock")  # mô phỏng TTL hết khi máy ngủ
+        await asyncio.sleep(0.05)
+        held.append(await cache.get_redis().exists("pipeline:lock"))
+        return {"updated": 1, "failed": 0, "deleted": 0}
+
+    monkeypatch.setattr(mod, "LOCK_HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(mod.github_graphql, "track", track)
+    await mod.run_daily()
+    assert held == [1]
+    assert await cache.acquire_pipeline_lock()

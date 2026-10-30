@@ -3,15 +3,16 @@ import json
 import logging
 
 import asyncpg
+import httpx
 
 from app.core.config import settings
 from app.core.dates import parse_iso_datetime
-from app.pipeline.sources.github_client import graphql
+from app.pipeline.sources.github_client import GitHubRateLimited, graphql
 from app.pipeline.steps.filter_ai import relevance_score
 
 log = logging.getLogger("pipeline.track")
 
-BATCH = 50
+BATCH = 25
 
 FRAGMENT = """
   databaseId nameWithOwner description stargazerCount forkCount
@@ -64,6 +65,42 @@ def _build_query(names: list[str]) -> str:
     return "query {\n" + "\n".join(parts) + "\n}"
 
 
+async def _fetch_nodes(names: list[str], nodes: dict, deleted: set[str], failed: set[str]) -> None:
+    """Lấy node cho names; lô bị GitHub từ chối thì chia đôi rồi thử lại tới từng repo.
+
+    Chỉ NOT_FOUND mới là repo đã xoá. Node rỗng vì lý do khác (ví dụ
+    RESOURCE_LIMITS_EXCEEDED) là chưa lấy được, không phải đã xoá.
+    """
+    try:
+        data, errors = await graphql(_build_query(names))
+    except (GitHubRateLimited, httpx.HTTPStatusError) as e:  # chia nhỏ không giúp được
+        log.warning("graphql %s repo fail: %s", len(names), e)
+        failed.update(names)
+        return
+    except Exception as e:
+        log.warning("graphql %s repo fail: %s", len(names), e)
+        data, errors = {}, []
+
+    not_found = {e["path"][0] for e in errors if e.get("type") == "NOT_FOUND" and e.get("path")}
+    retry = []
+    for j, fn in enumerate(names):
+        node = data.get(f"r{j}")
+        if node and node.get("databaseId") is not None:
+            nodes[fn] = node
+        elif f"r{j}" in not_found:
+            deleted.add(fn)
+        else:
+            retry.append(fn)
+
+    if len(names) == 1:
+        failed.update(retry)
+        return
+    mid = max(len(retry) // 2, 1)
+    for part in (retry[:mid], retry[mid:]):
+        if part:
+            await _fetch_nodes(part, nodes, deleted, failed)
+
+
 async def _select_tracked(pool: asyncpg.Pool) -> list[str]:
     rows = await pool.fetch(
         "SELECT full_name FROM repositories ORDER BY hot_score DESC NULLS LAST, stars DESC"
@@ -84,17 +121,13 @@ async def track(pool: asyncpg.Pool, extra_names: set[str] | None = None) -> dict
     async with pool.acquire() as conn:
         for i in range(0, len(names), BATCH):
             batch = names[i : i + BATCH]
-            try:
-                data = await graphql(_build_query(batch))
-            except Exception as e:
-                log.warning("graphql batch %s fail: %s", i // BATCH, e)
-                failed += len(batch)
-                continue
-            for j, fn in enumerate(batch):
-                node = data.get(f"r{j}")
-                if not node or node.get("databaseId") is None:
-                    deleted += 1
-                    continue  # repo bị xoá/private — giữ bản ghi cũ
+            nodes: dict[str, dict] = {}
+            gone: set[str] = set()
+            unresolved: set[str] = set()
+            await _fetch_nodes(batch, nodes, gone, unresolved)
+            deleted += len(gone)  # repo bị xoá/private — giữ bản ghi cũ
+            failed += len(unresolved)
+            for fn, node in nodes.items():
                 try:
                     topics = [t["topic"]["name"].lower() for t in node["repositoryTopics"]["nodes"]]
                     desc = (node.get("description") or "")[:512] or None

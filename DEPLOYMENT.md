@@ -37,6 +37,8 @@ cp .env.example .env
 
 App crawl vào 09:00 giờ Việt Nam (02:00 UTC, đổi bằng `PIPELINE_CRON`). Crawl chỉ chạy khi máy và Docker đang bật. Worker kiểm tra mỗi 15 phút, nên nếu máy tắt hoặc ngủ qua giờ crawl thì crawl sẽ chạy bù khi máy bật lại.
 
+Nếu máy ngủ giữa lúc crawl, crawl tạm dừng và chạy tiếp khi máy thức, nên lần đó có thể kéo dài nhiều giờ. Muốn crawl xong nhanh, hãy giữ máy thức trong lúc crawl.
+
 Crawl lỗi được thử lại sau ít nhất 1 giờ, tối đa 3 lần mỗi ngày. Lỗi token không được thử lại: hãy sửa `GITHUB_TOKEN`, chạy `./scripts/radar.sh up`, rồi `./scripts/radar.sh crawl`.
 
 Trạng thái lần crawl:

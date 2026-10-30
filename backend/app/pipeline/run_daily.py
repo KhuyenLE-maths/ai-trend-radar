@@ -6,6 +6,8 @@ Mỗi bước fail-soft: lỗi được ghi vào crawl_runs.stats, các bước 
 nếu không phụ thuộc cứng. Token hỏng, track thất bại hoặc không ghi được dữ liệu
 thô thì dừng sớm. Redis lock chống chạy chồng.
 """
+import asyncio
+import contextlib
 import json
 import logging
 import traceback
@@ -14,7 +16,9 @@ from pathlib import Path
 
 import httpx
 
-from app.core.cache import acquire_pipeline_lock, invalidate_all, release_pipeline_lock
+from app.core.cache import (
+    acquire_pipeline_lock, invalidate_all, release_pipeline_lock, renew_pipeline_lock,
+)
 from app.core.config import settings
 from app.core.db import get_pool, init_db
 from app.pipeline.raw_archive import RawArchive, use_archive
@@ -25,6 +29,8 @@ from app.pipeline.steps import categorize, rank, summarize
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("pipeline")
+
+LOCK_HEARTBEAT_SECONDS = 300
 
 
 async def _notify_slack(text: str) -> None:
@@ -178,13 +184,26 @@ async def _run(trigger: str) -> dict:
     return stats
 
 
+async def _keep_lock() -> None:
+    while True:
+        await asyncio.sleep(LOCK_HEARTBEAT_SECONDS)
+        try:
+            await renew_pipeline_lock()
+        except Exception as e:
+            log.warning("không gia hạn được lock: %s", e)
+
+
 async def run_daily(trigger: str = "cron") -> dict:
     if not await acquire_pipeline_lock():
         log.warning("Pipeline đang chạy (lock tồn tại) — bỏ qua lần trigger này.")
         return {"skipped": "locked"}
+    heartbeat = asyncio.create_task(_keep_lock())
     try:
         return await _run(trigger)
     finally:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
         await release_pipeline_lock()
 
 

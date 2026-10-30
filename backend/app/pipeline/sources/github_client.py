@@ -24,6 +24,10 @@ class GitHubError(Exception):
     pass
 
 
+class GitHubRateLimited(GitHubError):
+    pass
+
+
 class GitHubAuthError(Exception):
     pass
 
@@ -70,8 +74,10 @@ async def rest_get(path: str, params: dict | None = None) -> dict:
     stop=stop_after_attempt(4),
     wait=wait_exponential(multiplier=2, max=60),
     retry=retry_if_exception_type((httpx.TransportError, GitHubError)),
+    reraise=True,
 )
-async def graphql(query: str) -> dict:
+async def graphql(query: str) -> tuple[dict, list[dict]]:
+    """Trả (data, errors): GraphQL có thể trả 200 kèm lỗi từng phần."""
     request = {"method": "POST", "url": "/graphql", "query": query}
     async with httpx.AsyncClient(timeout=60) as client:
         try:
@@ -80,15 +86,17 @@ async def graphql(query: str) -> dict:
             record_raw("github_graphql", request, None, str(e))
             raise
         record_raw("github_graphql", request, r.status_code, r.text)
-        if r.status_code in (403, 429, 502):
+        if r.status_code in (403, 429):
             await asyncio.sleep(30)
+            raise GitHubRateLimited(f"graphql rate limited {r.status_code}")
+        if r.status_code in (502, 504):
             raise GitHubError(f"graphql retryable {r.status_code}")
         r.raise_for_status()
         body = r.json()
         # GraphQL trả 200 kể cả khi có lỗi từng phần — chỉ fail khi không có data
         if body.get("data") is None:
             raise GitHubError(f"graphql errors: {body.get('errors')}")
-        return body["data"]
+        return body["data"], body.get("errors") or []
 
 
 async def fetch_readme_raw(full_name: str, max_chars: int = 24000) -> str | None:

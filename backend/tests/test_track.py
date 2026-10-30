@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from app.pipeline.sources import github_graphql
+from app.pipeline.sources.github_client import GitHubError, GitHubRateLimited
 
 
 def make_node(database_id, name, **overrides):
@@ -26,14 +27,19 @@ async def insert_repo(pool, i, archived=False):
     )
 
 
-def fake_graphql(nodes_by_name, seen=None):
+def fake_graphql(nodes_by_name, seen=None, errors_for=None):
+    """errors_for(name, batch_size) trả type lỗi GraphQL của repo, hoặc None."""
     async def _graphql(query):
-        out = {}
-        for i, name in enumerate(n for n in _names(query)):
+        names = _names(query)
+        data, errors = {}, []
+        for i, name in enumerate(names):
             if seen is not None:
                 seen.append(name)
-            out[f"r{i}"] = nodes_by_name.get(name)
-        return out
+            error = errors_for(name, len(names)) if errors_for else None
+            data[f"r{i}"] = None if error else nodes_by_name.get(name)
+            if error:
+                errors.append({"type": error, "path": [f"r{i}"]})
+        return data, errors
     return _graphql
 
 
@@ -57,7 +63,7 @@ async def test_track_includes_archived_repos_without_cap(pool, monkeypatch):
     seen = []
     monkeypatch.setattr(github_graphql, "graphql", fake_graphql({}, seen))
     await github_graphql.track(pool)
-    assert len(seen) == 60 and "o/r1" in seen
+    assert len(set(seen)) == 60 and "o/r1" in seen
 
 
 async def test_bad_node_only_fails_that_repo(pool, monkeypatch):
@@ -69,8 +75,56 @@ async def test_bad_node_only_fails_that_repo(pool, monkeypatch):
     assert result["updated"] == 1 and result["failed"] == 1
 
 
-async def test_missing_repo_counts_as_deleted_not_failed(pool, monkeypatch):
+async def test_not_found_counts_as_deleted(pool, monkeypatch):
     await insert_repo(pool, 1)
-    monkeypatch.setattr(github_graphql, "graphql", fake_graphql({}))
+    monkeypatch.setattr(github_graphql, "graphql", fake_graphql({}, errors_for=lambda n, size: "NOT_FOUND"))
     result = await github_graphql.track(pool)
     assert result["deleted"] == 1 and result["failed"] == 0
+
+
+async def test_resource_limit_is_retried_in_smaller_batches(pool, monkeypatch):
+    for i in range(1, 5):
+        await insert_repo(pool, i)
+    nodes = {f"o/r{i}": make_node(i, f"o/r{i}") for i in range(1, 5)}
+    errors = lambda n, size: "RESOURCE_LIMITS_EXCEEDED" if size > 1 else None
+    monkeypatch.setattr(github_graphql, "graphql", fake_graphql(nodes, errors_for=errors))
+    result = await github_graphql.track(pool)
+    assert result["updated"] == 4 and result["deleted"] == 0 and result["failed"] == 0
+
+
+async def test_persistent_resource_limit_is_failed_not_deleted(pool, monkeypatch):
+    await insert_repo(pool, 1)
+    await insert_repo(pool, 2)
+    errors = lambda n, size: "RESOURCE_LIMITS_EXCEEDED"
+    monkeypatch.setattr(github_graphql, "graphql", fake_graphql({}, errors_for=errors))
+    result = await github_graphql.track(pool)
+    assert result["failed"] == 2 and result["deleted"] == 0
+
+
+async def test_server_error_is_retried_in_smaller_batches(pool, monkeypatch):
+    await insert_repo(pool, 1)
+    await insert_repo(pool, 2)
+    nodes = {"o/r1": make_node(1, "o/r1"), "o/r2": make_node(2, "o/r2")}
+    inner = fake_graphql(nodes)
+
+    async def flaky(query):
+        if len(_names(query)) > 1:
+            raise GitHubError("graphql retryable 502")
+        return await inner(query)
+
+    monkeypatch.setattr(github_graphql, "graphql", flaky)
+    assert (await github_graphql.track(pool))["updated"] == 2
+
+
+async def test_rate_limit_is_not_split(pool, monkeypatch):
+    await insert_repo(pool, 1)
+    await insert_repo(pool, 2)
+    calls = []
+
+    async def limited(query):
+        calls.append(query)
+        raise GitHubRateLimited("graphql rate limited 403")
+
+    monkeypatch.setattr(github_graphql, "graphql", limited)
+    result = await github_graphql.track(pool)
+    assert len(calls) == 1 and result["failed"] == 2
