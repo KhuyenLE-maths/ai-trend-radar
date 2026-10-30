@@ -1,0 +1,10 @@
+ai_summaries|49
+categories|26
+crawl_runs|17
+raw_items|0
+repo_categories|6984
+repo_mentions|5
+repo_snapshots|0
+repo_tags|0
+repositories|4677
+tags|0

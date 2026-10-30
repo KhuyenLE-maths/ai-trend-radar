@@ -57,6 +57,8 @@ data/
   backups/radar-YYYY-MM-DD.dump
 ```
 
+Một lần crawl đầy đủ tạo khoảng 8 MB dữ liệu thô nén, tức khoảng 3 GB mỗi năm nếu crawl mỗi ngày (đo ngày 2026-10-30 với 6.288 repo).
+
 Không có gì tự xóa. `data/` không nằm trong git, nên hãy tự sao chép folder này ra ổ khác nếu muốn phòng hỏng máy. Tắt app trước khi sao chép `data/postgres`; file trong `data/backups` thì sao chép lúc nào cũng được.
 
 Các nguồn trong `data/raw`: `github_rest`, `github_graphql`, `github_readme`, `github_trending`, `hackernews`, `anthropic`. Mỗi dòng là một JSON gồm `ts`, `source`, `request`, `status`, `body`, kể cả phản hồi lỗi.
