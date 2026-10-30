@@ -5,8 +5,10 @@ services:
       POSTGRES_USER: radar
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-radar}
       POSTGRES_DB: radar
+    ports:
+      - "127.0.0.1:5433:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U radar -d radar"]
       interval: 5s
@@ -30,7 +32,9 @@ services:
       DATABASE_URL: postgresql://radar:${POSTGRES_PASSWORD:-radar}@postgres:5432/radar
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${API_PORT:-8001}:8000"
+    volumes:
+      - ./data/raw:/data/raw
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,6 +46,8 @@ services:
     build: ./backend
     command: ["python", "-m", "app.pipeline.scheduler"]
     env_file: .env
+    volumes:
+      - ./data/raw:/data/raw
     environment:
       DATABASE_URL: postgresql://radar:${POSTGRES_PASSWORD:-radar}@postgres:5432/radar
       REDIS_URL: redis://redis:6379/0
@@ -57,10 +63,23 @@ services:
     environment:
       API_URL_INTERNAL: http://api:8000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
     restart: unless-stopped
 
-volumes:
-  pgdata:
+  backup:
+    image: postgres:16-alpine
+    command: ["sh", "/scripts/backup-loop.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: radar
+      PGDATABASE: radar
+      PGPASSWORD: ${POSTGRES_PASSWORD:-radar}
+    volumes:
+      - ./data/backups:/backups
+      - ./scripts:/scripts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
