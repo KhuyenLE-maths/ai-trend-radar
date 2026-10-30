@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://radar:radar@localhost:5432/radar"
     redis_url: str = "redis://localhost:6379/0"
 
+    # Lưu trữ
+    raw_data_dir: str = "/data/raw"        # dữ liệu thô từng lần crawl (bind mount ./data/raw)
+
     # Nguồn dữ liệu
     github_token: str = ""                 # BẮT BUỘC để crawl (5000 req/h)
     # LLM (tuỳ chọn — không có key thì pipeline bỏ qua bước AI Summary)

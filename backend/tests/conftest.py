@@ -28,5 +28,5 @@ async def pool():
 def raw_dir(tmp_path, monkeypatch):
     path = tmp_path / "raw"
     path.mkdir()
-    monkeypatch.setattr(settings, "raw_data_dir", str(path), raising=False)
+    monkeypatch.setattr(settings, "raw_data_dir", str(path))
     return path
