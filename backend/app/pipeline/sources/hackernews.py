@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 
 import httpx
 
+from app.pipeline.raw_archive import record_raw
+
 log = logging.getLogger("pipeline.hn")
 
 ALGOLIA = "https://hn.algolia.com/api/v1/search"
@@ -16,33 +18,29 @@ async def fetch_mentions(min_points: int = 50, days: int = 3) -> list[dict]:
     """Story chứa link GitHub, điểm cao, trong N ngày gần nhất."""
     since = int(time.time()) - days * 86400
     out: list[dict] = []
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.get(
-                ALGOLIA,
-                params={
-                    "query": "github.com",
-                    "tags": "story",
-                    "numericFilters": f"points>{min_points},created_at_i>{since}",
-                    "hitsPerPage": 100,
-                },
-            )
-            r.raise_for_status()
-            for hit in r.json().get("hits", []):
-                m = GH_RE.search(hit.get("url") or "") or GH_RE.search(hit.get("story_text") or "")
-                if not m:
-                    continue
-                full_name = m.group(1).removesuffix(".git")
-                out.append({
-                    "full_name": full_name,
-                    "external_id": hit["objectID"],
-                    "title": hit.get("title"),
-                    "url": f"https://news.ycombinator.com/item?id={hit['objectID']}",
-                    "score": hit.get("points", 0),
-                    "mentioned_at": datetime.fromtimestamp(hit.get("created_at_i", 0), tz=timezone.utc),
-                })
-    except Exception as e:
-        log.warning("HN fetch fail: %s", e)
+    params = {
+        "query": "github.com",
+        "tags": "story",
+        "numericFilters": f"points>{min_points},created_at_i>{since}",
+        "hitsPerPage": 100,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(ALGOLIA, params=params)
+    record_raw("hackernews", {"method": "GET", "url": ALGOLIA, "params": params}, r.status_code, r.text)
+    r.raise_for_status()
+    for hit in r.json().get("hits", []):
+        m = GH_RE.search(hit.get("url") or "") or GH_RE.search(hit.get("story_text") or "")
+        if not m:
+            continue
+        full_name = m.group(1).removesuffix(".git")
+        out.append({
+            "full_name": full_name,
+            "external_id": hit["objectID"],
+            "title": hit.get("title"),
+            "url": f"https://news.ycombinator.com/item?id={hit['objectID']}",
+            "score": hit.get("points", 0),
+            "mentioned_at": datetime.fromtimestamp(hit.get("created_at_i", 0), tz=timezone.utc),
+        })
     log.info("hn: %s mentions", len(out))
     return out
 

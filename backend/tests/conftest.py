@@ -1,3 +1,4 @@
+import httpx
 import pytest
 
 from app.core import cache, db
@@ -30,3 +31,22 @@ def raw_dir(tmp_path, monkeypatch):
     path.mkdir()
     monkeypatch.setattr(settings, "raw_data_dir", str(path))
     return path
+
+
+@pytest.fixture
+def mock_http(monkeypatch):
+    """Thay httpx.AsyncClient: routes là {chuỗi con của URL: (status, body)}."""
+    routes: dict[str, tuple[int, str]] = {}
+    real_client = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        for key, (status, body) in routes.items():
+            if key in str(request.url):
+                return httpx.Response(status, text=body)
+        return httpx.Response(404, text="no route")
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+    )
+    return routes

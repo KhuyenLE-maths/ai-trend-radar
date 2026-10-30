@@ -59,7 +59,7 @@ async def discover(pool: asyncpg.Pool) -> dict:
         queries.append(f"topic:{t} created:>{since_created} stars:>10")
 
     seen: set[int] = set()
-    inserted = scanned = 0
+    inserted = scanned = failed_queries = 0
     async with pool.acquire() as conn:
         for q in queries:
             for page in range(1, settings.discover_pages_per_query + 1):
@@ -70,6 +70,7 @@ async def discover(pool: asyncpg.Pool) -> dict:
                     )
                 except Exception as e:  # 1 truy vấn fail không được chặn các truy vấn khác
                     log.warning("search fail q=%r page=%s: %s", q, page, e)
+                    failed_queries += 1
                     break
                 items = data.get("items", [])
                 scanned += len(items)
@@ -87,4 +88,4 @@ async def discover(pool: asyncpg.Pool) -> dict:
                 if len(items) < 100:
                     break
     log.info("discover: scanned=%s accepted=%s", scanned, inserted)
-    return {"scanned": scanned, "accepted": inserted}
+    return {"scanned": scanned, "accepted": inserted, "failed_queries": failed_queries}

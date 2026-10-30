@@ -8,13 +8,20 @@ import logging
 import httpx
 from bs4 import BeautifulSoup
 
+from app.pipeline.raw_archive import record_raw
+
 log = logging.getLogger("pipeline.trending")
 
 LANGS = ["", "python", "typescript", "rust", "jupyter-notebook", "go"]
 
 
+class TrendingUnavailable(Exception):
+    pass
+
+
 async def fetch_trending() -> set[str]:
     names: set[str] = set()
+    failures = 0
     async with httpx.AsyncClient(
         timeout=30, headers={"User-Agent": "ai-trend-radar/1.0 (internal tool)"}, follow_redirects=True
     ) as client:
@@ -22,6 +29,7 @@ async def fetch_trending() -> set[str]:
             url = f"https://github.com/trending/{lang}?since=daily" if lang else "https://github.com/trending?since=daily"
             try:
                 r = await client.get(url)
+                record_raw("github_trending", {"method": "GET", "url": url}, r.status_code, r.text)
                 r.raise_for_status()
                 soup = BeautifulSoup(r.text, "html.parser")
                 for a in soup.select("article.Box-row h2 a"):
@@ -30,6 +38,9 @@ async def fetch_trending() -> set[str]:
                         names.add(href)
             except Exception as e:
                 log.warning("trending scrape fail (%s): %s", lang or "all", e)
+                failures += 1
+    if failures == len(LANGS):
+        raise TrendingUnavailable("mọi trang trending đều lỗi")
     log.info("trending: %s repos", len(names))
     return names
 

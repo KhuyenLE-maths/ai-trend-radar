@@ -11,6 +11,7 @@ import re
 import asyncpg
 
 from app.core.config import settings
+from app.pipeline.raw_archive import record_raw
 from app.pipeline.sources.github_client import fetch_readme_raw
 
 log = logging.getLogger("pipeline.summarize")
@@ -122,12 +123,14 @@ async def summarize(pool: asyncpg.Pool) -> dict:
                 candidates=", ".join(s["full_name"] for s in similar) or "(không có)",
                 readme=readme,
             )
+            request = {"model": settings.summary_model, "repo": repo["full_name"], "prompt": prompt}
             try:
                 msg = await client.messages.create(
                     model=settings.summary_model,
                     max_tokens=1500,
                     messages=[{"role": "user", "content": prompt}],
                 )
+                record_raw("anthropic", request, 200, msg.model_dump_json())
                 content = _parse_json(msg.content[0].text)
                 if not content or "tldr" not in content:
                     failed += 1
@@ -141,6 +144,7 @@ async def summarize(pool: asyncpg.Pool) -> dict:
                 done += 1
             except Exception as e:
                 log.warning("summarize %s fail: %s", repo["full_name"], e)
+                record_raw("anthropic", request, None, str(e))
                 failed += 1
 
     log.info("summarize: done=%s failed=%s", done, failed)
