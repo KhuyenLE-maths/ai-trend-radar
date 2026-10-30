@@ -24,10 +24,8 @@ class Settings(BaseSettings):
     admin_token: str = "changeme"
     slack_webhook_url: str = ""
     pipeline_cron: str = "0 2 * * *"       # 02:00 UTC = 09:00 VN
-    run_on_start: bool = False             # worker chạy pipeline ngay khi khởi động (tiện demo)
 
     # Tham số crawl / lọc
-    max_tracked_repos: int = 3000          # trần số repo track mỗi ngày (rate-limit safety)
     discover_pages_per_query: int = 2      # số trang (100 repo/trang) mỗi truy vấn search
     discover_min_stars: int = 50           # sao tối thiểu khi discover
     ai_filter_threshold: float = 3.0       # ngưỡng điểm AI-relevance (tầng rule)

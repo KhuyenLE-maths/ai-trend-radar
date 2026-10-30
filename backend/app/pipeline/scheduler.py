@@ -27,13 +27,6 @@ async def main() -> None:
     scheduler.start()
     log.info("Scheduler started — cron: %s (UTC)", settings.pipeline_cron)
 
-    if settings.run_on_start:
-        log.info("RUN_ON_START=true → chạy pipeline ngay...")
-        try:
-            await run_daily(trigger="startup")
-        except Exception as e:
-            log.error("Pipeline khởi động fail: %s", e)
-
     await asyncio.Event().wait()  # giữ process sống
 
 

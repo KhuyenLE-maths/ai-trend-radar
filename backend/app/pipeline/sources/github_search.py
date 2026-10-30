@@ -1,10 +1,11 @@
 """Discover: tìm repo AI mới qua GitHub Search API theo bộ topic."""
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import asyncpg
 
 from app.core.config import settings
+from app.core.dates import parse_iso_datetime
 from app.pipeline.sources.github_client import rest_get
 from app.pipeline.steps.filter_ai import relevance_score
 
@@ -31,12 +32,6 @@ ON CONFLICT (github_id) DO UPDATE SET
 """
 
 
-def _parse_iso_datetime(s: str | None) -> datetime | None:
-    if not s:
-        return None
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
-
-
 def _item_to_row(it: dict, score: float) -> tuple:
     lic = (it.get("license") or {}).get("spdx_id")
     return (
@@ -48,7 +43,7 @@ def _item_to_row(it: dict, score: float) -> tuple:
         it.get("archived", False), it.get("fork", False),
         it.get("stargazers_count", 0), it.get("forks_count", 0),
         it.get("watchers_count", 0), it.get("open_issues_count", 0),
-        _parse_iso_datetime(it.get("created_at")), _parse_iso_datetime(it.get("pushed_at")), score,
+        parse_iso_datetime(it.get("created_at")), parse_iso_datetime(it.get("pushed_at")), score,
     )
 
 

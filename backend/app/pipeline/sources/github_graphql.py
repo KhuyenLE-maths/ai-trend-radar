@@ -5,6 +5,7 @@ import logging
 import asyncpg
 
 from app.core.config import settings
+from app.core.dates import parse_iso_datetime
 from app.pipeline.sources.github_client import graphql
 from app.pipeline.steps.filter_ai import relevance_score
 
@@ -65,9 +66,7 @@ def _build_query(names: list[str]) -> str:
 
 async def _select_tracked(pool: asyncpg.Pool) -> list[str]:
     rows = await pool.fetch(
-        """SELECT full_name FROM repositories WHERE NOT is_archived
-           ORDER BY hot_score DESC NULLS LAST, stars DESC LIMIT $1""",
-        settings.max_tracked_repos,
+        "SELECT full_name FROM repositories ORDER BY hot_score DESC NULLS LAST, stars DESC"
     )
     return [r["full_name"] for r in rows]
 
@@ -81,7 +80,7 @@ async def track(pool: asyncpg.Pool, extra_names: set[str] | None = None) -> dict
         if n.lower() not in known:
             names.append(n)
 
-    updated = snapshots = rejected = failed = 0
+    updated = snapshots = rejected = failed = deleted = 0
     async with pool.acquire() as conn:
         for i in range(0, len(names), BATCH):
             batch = names[i : i + BATCH]
@@ -94,38 +93,50 @@ async def track(pool: asyncpg.Pool, extra_names: set[str] | None = None) -> dict
             for j, fn in enumerate(batch):
                 node = data.get(f"r{j}")
                 if not node or node.get("databaseId") is None:
+                    deleted += 1
                     continue  # repo bị xoá/private — giữ bản ghi cũ
-                topics = [t["topic"]["name"].lower() for t in node["repositoryTopics"]["nodes"]]
-                desc = (node.get("description") or "")[:512] or None
-                score = relevance_score(node["nameWithOwner"], desc or "", topics)
-                is_new = fn.lower() not in known
-                if is_new and score < settings.ai_filter_threshold:
-                    rejected += 1
-                    continue
-                lic = (node.get("licenseInfo") or {}).get("spdxId")
-                commit = ((node.get("defaultBranchRef") or {}).get("target") or {}).get("committedDate")
-                repo_id = await conn.fetchval(
-                    UPSERT_SQL,
-                    node["databaseId"], node["nameWithOwner"],
-                    node["owner"]["login"], node["nameWithOwner"].split("/", 1)[1],
-                    f'https://github.com/{node["nameWithOwner"]}',
-                    node.get("homepageUrl") or None, desc,
-                    node["owner"].get("avatarUrl"),
-                    (node.get("primaryLanguage") or {}).get("name"),
-                    None if lic in (None, "NOASSERTION") else lic,
-                    topics, node["isArchived"], node["isFork"],
-                    node["stargazerCount"], node["forkCount"],
-                    node["watchers"]["totalCount"], node["issues"]["totalCount"],
-                    node["mentionableUsers"]["totalCount"],
-                    node["createdAt"], node["pushedAt"], commit, score,
-                )
-                await conn.execute(
-                    SNAPSHOT_SQL, repo_id,
-                    node["stargazerCount"], node["forkCount"],
-                    node["watchers"]["totalCount"], node["issues"]["totalCount"],
-                    node["mentionableUsers"]["totalCount"],
-                )
-                updated += 1
-                snapshots += 1
-    log.info("track: updated=%s snapshots=%s rejected=%s failed=%s", updated, snapshots, rejected, failed)
-    return {"updated": updated, "snapshots": snapshots, "rejected_new": rejected, "failed": failed}
+                try:
+                    topics = [t["topic"]["name"].lower() for t in node["repositoryTopics"]["nodes"]]
+                    desc = (node.get("description") or "")[:512] or None
+                    score = relevance_score(node["nameWithOwner"], desc or "", topics)
+                    is_new = fn.lower() not in known
+                    if is_new and score < settings.ai_filter_threshold:
+                        rejected += 1
+                        continue
+                    lic = (node.get("licenseInfo") or {}).get("spdxId")
+                    commit = ((node.get("defaultBranchRef") or {}).get("target") or {}).get("committedDate")
+                    repo_id = await conn.fetchval(
+                        UPSERT_SQL,
+                        node["databaseId"], node["nameWithOwner"],
+                        node["owner"]["login"], node["nameWithOwner"].split("/", 1)[1],
+                        f'https://github.com/{node["nameWithOwner"]}',
+                        node.get("homepageUrl") or None, desc,
+                        node["owner"].get("avatarUrl"),
+                        (node.get("primaryLanguage") or {}).get("name"),
+                        None if lic in (None, "NOASSERTION") else lic,
+                        topics, node["isArchived"], node["isFork"],
+                        node["stargazerCount"], node["forkCount"],
+                        node["watchers"]["totalCount"], node["issues"]["totalCount"],
+                        node["mentionableUsers"]["totalCount"],
+                        parse_iso_datetime(node["createdAt"]), parse_iso_datetime(node["pushedAt"]),
+                        parse_iso_datetime(commit), score,
+                    )
+                    await conn.execute(
+                        SNAPSHOT_SQL, repo_id,
+                        node["stargazerCount"], node["forkCount"],
+                        node["watchers"]["totalCount"], node["issues"]["totalCount"],
+                        node["mentionableUsers"]["totalCount"],
+                    )
+                    updated += 1
+                    snapshots += 1
+                except Exception as e:  # 1 repo lỗi không được chặn cả bước
+                    log.warning("track %s fail: %s", fn, e)
+                    failed += 1
+    log.info(
+        "track: updated=%s snapshots=%s rejected=%s failed=%s deleted=%s",
+        updated, snapshots, rejected, failed, deleted,
+    )
+    return {
+        "updated": updated, "snapshots": snapshots, "rejected_new": rejected,
+        "failed": failed, "deleted": deleted,
+    }
