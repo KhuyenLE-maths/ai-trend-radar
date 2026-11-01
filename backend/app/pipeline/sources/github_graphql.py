@@ -3,14 +3,17 @@ import json
 import logging
 
 import asyncpg
+import httpx
 
 from app.core.config import settings
-from app.pipeline.sources.github_client import graphql
+from app.core.dates import parse_iso_datetime
+from app.pipeline.sources.github_client import GitHubRateLimited, graphql
 from app.pipeline.steps.filter_ai import relevance_score
 
 log = logging.getLogger("pipeline.track")
 
-BATCH = 50
+BATCH = 25
+MAX_EMPTY_BATCHES = 5  # mất mạng/GitHub sập: dừng sớm thay vì thử hết mọi lô
 
 FRAGMENT = """
   databaseId nameWithOwner description stargazerCount forkCount
@@ -63,11 +66,45 @@ def _build_query(names: list[str]) -> str:
     return "query {\n" + "\n".join(parts) + "\n}"
 
 
+async def _fetch_nodes(names: list[str], nodes: dict, deleted: set[str], failed: set[str]) -> None:
+    """Lấy node cho names; lô bị GitHub từ chối thì chia đôi rồi thử lại tới từng repo.
+
+    Chỉ NOT_FOUND mới là repo đã xoá. Node rỗng vì lý do khác (ví dụ
+    RESOURCE_LIMITS_EXCEEDED) là chưa lấy được, không phải đã xoá.
+    """
+    try:
+        data, errors = await graphql(_build_query(names))
+    except (GitHubRateLimited, httpx.HTTPStatusError, httpx.TransportError) as e:  # chia nhỏ không giúp được
+        log.warning("graphql %s repo fail: %s", len(names), e)
+        failed.update(names)
+        return
+    except Exception as e:
+        log.warning("graphql %s repo fail: %s", len(names), e)
+        data, errors = {}, []
+
+    not_found = {e["path"][0] for e in errors if e.get("type") == "NOT_FOUND" and e.get("path")}
+    retry = []
+    for j, fn in enumerate(names):
+        node = data.get(f"r{j}")
+        if node and node.get("databaseId") is not None:
+            nodes[fn] = node
+        elif f"r{j}" in not_found:
+            deleted.add(fn)
+        else:
+            retry.append(fn)
+
+    if len(names) == 1:
+        failed.update(retry)
+        return
+    mid = max(len(retry) // 2, 1)
+    for part in (retry[:mid], retry[mid:]):
+        if part:
+            await _fetch_nodes(part, nodes, deleted, failed)
+
+
 async def _select_tracked(pool: asyncpg.Pool) -> list[str]:
     rows = await pool.fetch(
-        """SELECT full_name FROM repositories WHERE NOT is_archived
-           ORDER BY hot_score DESC NULLS LAST, stars DESC LIMIT $1""",
-        settings.max_tracked_repos,
+        "SELECT full_name FROM repositories ORDER BY hot_score DESC NULLS LAST, stars DESC"
     )
     return [r["full_name"] for r in rows]
 
@@ -81,51 +118,65 @@ async def track(pool: asyncpg.Pool, extra_names: set[str] | None = None) -> dict
         if n.lower() not in known:
             names.append(n)
 
-    updated = snapshots = rejected = failed = 0
+    updated = snapshots = rejected = failed = deleted = empty_batches = 0
     async with pool.acquire() as conn:
         for i in range(0, len(names), BATCH):
             batch = names[i : i + BATCH]
-            try:
-                data = await graphql(_build_query(batch))
-            except Exception as e:
-                log.warning("graphql batch %s fail: %s", i // BATCH, e)
-                failed += len(batch)
-                continue
-            for j, fn in enumerate(batch):
-                node = data.get(f"r{j}")
-                if not node or node.get("databaseId") is None:
-                    continue  # repo bị xoá/private — giữ bản ghi cũ
-                topics = [t["topic"]["name"].lower() for t in node["repositoryTopics"]["nodes"]]
-                desc = (node.get("description") or "")[:512] or None
-                score = relevance_score(node["nameWithOwner"], desc or "", topics)
-                is_new = fn.lower() not in known
-                if is_new and score < settings.ai_filter_threshold:
-                    rejected += 1
-                    continue
-                lic = (node.get("licenseInfo") or {}).get("spdxId")
-                commit = ((node.get("defaultBranchRef") or {}).get("target") or {}).get("committedDate")
-                repo_id = await conn.fetchval(
-                    UPSERT_SQL,
-                    node["databaseId"], node["nameWithOwner"],
-                    node["owner"]["login"], node["nameWithOwner"].split("/", 1)[1],
-                    f'https://github.com/{node["nameWithOwner"]}',
-                    node.get("homepageUrl") or None, desc,
-                    node["owner"].get("avatarUrl"),
-                    (node.get("primaryLanguage") or {}).get("name"),
-                    None if lic in (None, "NOASSERTION") else lic,
-                    topics, node["isArchived"], node["isFork"],
-                    node["stargazerCount"], node["forkCount"],
-                    node["watchers"]["totalCount"], node["issues"]["totalCount"],
-                    node["mentionableUsers"]["totalCount"],
-                    node["createdAt"], node["pushedAt"], commit, score,
-                )
-                await conn.execute(
-                    SNAPSHOT_SQL, repo_id,
-                    node["stargazerCount"], node["forkCount"],
-                    node["watchers"]["totalCount"], node["issues"]["totalCount"],
-                    node["mentionableUsers"]["totalCount"],
-                )
-                updated += 1
-                snapshots += 1
-    log.info("track: updated=%s snapshots=%s rejected=%s failed=%s", updated, snapshots, rejected, failed)
-    return {"updated": updated, "snapshots": snapshots, "rejected_new": rejected, "failed": failed}
+            nodes: dict[str, dict] = {}
+            gone: set[str] = set()
+            unresolved: set[str] = set()
+            await _fetch_nodes(batch, nodes, gone, unresolved)
+            deleted += len(gone)  # repo bị xoá/private — giữ bản ghi cũ
+            failed += len(unresolved)
+            empty_batches = 0 if nodes or gone else empty_batches + 1
+            if empty_batches >= MAX_EMPTY_BATCHES:
+                remaining = max(len(names) - (i + BATCH), 0)
+                log.error("track dừng sớm: %s lô liên tiếp không có dữ liệu", empty_batches)
+                failed += remaining
+                break
+            for fn, node in nodes.items():
+                try:
+                    topics = [t["topic"]["name"].lower() for t in node["repositoryTopics"]["nodes"]]
+                    desc = (node.get("description") or "")[:512] or None
+                    score = relevance_score(node["nameWithOwner"], desc or "", topics)
+                    is_new = fn.lower() not in known
+                    if is_new and score < settings.ai_filter_threshold:
+                        rejected += 1
+                        continue
+                    lic = (node.get("licenseInfo") or {}).get("spdxId")
+                    commit = ((node.get("defaultBranchRef") or {}).get("target") or {}).get("committedDate")
+                    repo_id = await conn.fetchval(
+                        UPSERT_SQL,
+                        node["databaseId"], node["nameWithOwner"],
+                        node["owner"]["login"], node["nameWithOwner"].split("/", 1)[1],
+                        f'https://github.com/{node["nameWithOwner"]}',
+                        node.get("homepageUrl") or None, desc,
+                        node["owner"].get("avatarUrl"),
+                        (node.get("primaryLanguage") or {}).get("name"),
+                        None if lic in (None, "NOASSERTION") else lic,
+                        topics, node["isArchived"], node["isFork"],
+                        node["stargazerCount"], node["forkCount"],
+                        node["watchers"]["totalCount"], node["issues"]["totalCount"],
+                        node["mentionableUsers"]["totalCount"],
+                        parse_iso_datetime(node["createdAt"]), parse_iso_datetime(node["pushedAt"]),
+                        parse_iso_datetime(commit), score,
+                    )
+                    await conn.execute(
+                        SNAPSHOT_SQL, repo_id,
+                        node["stargazerCount"], node["forkCount"],
+                        node["watchers"]["totalCount"], node["issues"]["totalCount"],
+                        node["mentionableUsers"]["totalCount"],
+                    )
+                    updated += 1
+                    snapshots += 1
+                except Exception as e:  # 1 repo lỗi không được chặn cả bước
+                    log.warning("track %s fail: %s", fn, e)
+                    failed += 1
+    log.info(
+        "track: updated=%s snapshots=%s rejected=%s failed=%s deleted=%s",
+        updated, snapshots, rejected, failed, deleted,
+    )
+    return {
+        "updated": updated, "snapshots": snapshots, "rejected_new": rejected,
+        "failed": failed, "deleted": deleted,
+    }

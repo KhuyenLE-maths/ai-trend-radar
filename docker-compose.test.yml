@@ -1,0 +1,41 @@
+# Môi trường test cô lập: dữ liệu trong tmpfs, không publish cổng.
+name: ai-trend-radar-test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: radar
+      POSTGRES_DB: radar
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radar -d radar"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  tests:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    environment:
+      DATABASE_URL: postgresql://radar:radar@postgres:5432/radar
+      REDIS_URL: redis://redis:6379/0
+      GITHUB_TOKEN: test-token
+    volumes:
+      - ./backend:/srv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

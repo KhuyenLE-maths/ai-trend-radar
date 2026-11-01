@@ -1,19 +1,29 @@
-"""AI Summary (mục 11) — tuỳ chọn, chỉ chạy khi có ANTHROPIC_API_KEY.
+"""AI Summary (mục 11) — tuỳ chọn, chỉ chạy khi có GEMINI_API_KEY.
 
 Chọn lọc để kiểm soát chi phí: chỉ Top-N repo hot chưa có summary cho README
 hiện tại. Cache vĩnh viễn theo (repo_id, readme_hash).
 """
+import asyncio
 import hashlib
 import json
 import logging
 import re
 
 import asyncpg
+import httpx
 
 from app.core.config import settings
+from app.pipeline.raw_archive import record_raw
 from app.pipeline.sources.github_client import fetch_readme_raw
 
 log = logging.getLogger("pipeline.summarize")
+
+GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
+RATE_LIMIT_WAIT_SECONDS = 60
+
+
+class _GeminiStop(Exception):
+    """Key hỏng, hết hạn mức hoặc model quá tải: gọi tiếp cũng vô ích."""
 
 PROMPT = """Bạn là kỹ sư AI thẩm định công cụ cho đội ngũ nội bộ. Dựa DUY NHẤT vào metadata và README dưới đây, hãy tóm tắt repository. Không suy diễn thông tin không có trong tài liệu; mục nào không đủ căn cứ thì để chuỗi rỗng hoặc mảng rỗng.
 
@@ -79,17 +89,42 @@ def _parse_json(raw: str) -> dict | None:
     return None
 
 
+async def _post_gemini(client: httpx.AsyncClient, prompt: str, record: dict) -> httpx.Response:
+    # Key đi qua header, không để trên URL vì URL bị ghi vào log
+    r = await client.post(
+        f"{GEMINI_API}/models/{settings.summary_model}:generateContent",
+        headers={"x-goog-api-key": settings.gemini_api_key},
+        json={
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            # Token suy luận của model cũng tính vào hạn mức này
+            "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": 8000},
+        },
+    )
+    record_raw("gemini", record, r.status_code, r.text)
+    return r
+
+
+async def _generate(client: httpx.AsyncClient, prompt: str, record: dict) -> str:
+    r = await _post_gemini(client, prompt, record)
+    if r.status_code in (429, 503):  # hết hạn mức theo phút/model quá tải: chờ rồi thử lại một lần
+        await asyncio.sleep(RATE_LIMIT_WAIT_SECONDS)
+        r = await _post_gemini(client, prompt, record)
+    if r.status_code in (401, 403, 429, 503) or (r.status_code == 400 and "API_KEY_INVALID" in r.text):
+        raise _GeminiStop(f"Gemini trả {r.status_code}")
+    r.raise_for_status()
+    # Prompt bị chặn thì không có candidates
+    parts = ((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+    return "".join(p.get("text", "") for p in parts)
+
+
 async def summarize(pool: asyncpg.Pool) -> dict:
-    if not settings.anthropic_api_key:
-        log.info("summarize: bỏ qua (chưa cấu hình ANTHROPIC_API_KEY)")
+    if not settings.gemini_api_key:
+        log.info("summarize: bỏ qua (chưa cấu hình GEMINI_API_KEY)")
         return {"skipped": True}
 
-    import anthropic
-
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     done = failed = 0
 
-    async with pool.acquire() as conn:
+    async with httpx.AsyncClient(timeout=120) as client, pool.acquire() as conn:
         candidates = await conn.fetch(SELECT_CANDIDATES_SQL)
         for repo in candidates:
             if done >= settings.summary_daily_limit:
@@ -122,13 +157,9 @@ async def summarize(pool: asyncpg.Pool) -> dict:
                 candidates=", ".join(s["full_name"] for s in similar) or "(không có)",
                 readme=readme,
             )
+            record = {"model": settings.summary_model, "repo": repo["full_name"], "prompt": prompt}
             try:
-                msg = await client.messages.create(
-                    model=settings.summary_model,
-                    max_tokens=1500,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                content = _parse_json(msg.content[0].text)
+                content = _parse_json(await _generate(client, prompt, record))
                 if not content or "tldr" not in content:
                     failed += 1
                     continue
@@ -139,8 +170,13 @@ async def summarize(pool: asyncpg.Pool) -> dict:
                     repo["id"], readme_hash, settings.summary_model, json.dumps(content),
                 )
                 done += 1
+            except _GeminiStop as e:
+                log.error("summarize dừng: %s", e)
+                failed += 1
+                break
             except Exception as e:
                 log.warning("summarize %s fail: %s", repo["full_name"], e)
+                record_raw("gemini", record, None, str(e))
                 failed += 1
 
     log.info("summarize: done=%s failed=%s", done, failed)

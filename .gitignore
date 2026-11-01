@@ -7,3 +7,5 @@ node_modules/
 pgdata/
 .DS_Store
 .playwright-mcp/
+data/
+.superpowers/

@@ -1,10 +1,11 @@
 """Discover: tìm repo AI mới qua GitHub Search API theo bộ topic."""
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import asyncpg
 
 from app.core.config import settings
+from app.core.dates import parse_iso_datetime
 from app.pipeline.sources.github_client import rest_get
 from app.pipeline.steps.filter_ai import relevance_score
 
@@ -31,12 +32,6 @@ ON CONFLICT (github_id) DO UPDATE SET
 """
 
 
-def _parse_iso_datetime(s: str | None) -> datetime | None:
-    if not s:
-        return None
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
-
-
 def _item_to_row(it: dict, score: float) -> tuple:
     lic = (it.get("license") or {}).get("spdx_id")
     return (
@@ -48,7 +43,7 @@ def _item_to_row(it: dict, score: float) -> tuple:
         it.get("archived", False), it.get("fork", False),
         it.get("stargazers_count", 0), it.get("forks_count", 0),
         it.get("watchers_count", 0), it.get("open_issues_count", 0),
-        _parse_iso_datetime(it.get("created_at")), _parse_iso_datetime(it.get("pushed_at")), score,
+        parse_iso_datetime(it.get("created_at")), parse_iso_datetime(it.get("pushed_at")), score,
     )
 
 
@@ -64,7 +59,7 @@ async def discover(pool: asyncpg.Pool) -> dict:
         queries.append(f"topic:{t} created:>{since_created} stars:>10")
 
     seen: set[int] = set()
-    inserted = scanned = 0
+    inserted = scanned = failed_queries = 0
     async with pool.acquire() as conn:
         for q in queries:
             for page in range(1, settings.discover_pages_per_query + 1):
@@ -75,6 +70,7 @@ async def discover(pool: asyncpg.Pool) -> dict:
                     )
                 except Exception as e:  # 1 truy vấn fail không được chặn các truy vấn khác
                     log.warning("search fail q=%r page=%s: %s", q, page, e)
+                    failed_queries += 1
                     break
                 items = data.get("items", [])
                 scanned += len(items)
@@ -92,4 +88,4 @@ async def discover(pool: asyncpg.Pool) -> dict:
                 if len(items) < 100:
                     break
     log.info("discover: scanned=%s accepted=%s", scanned, inserted)
-    return {"scanned": scanned, "accepted": inserted}
+    return {"scanned": scanned, "accepted": inserted, "failed_queries": failed_queries}

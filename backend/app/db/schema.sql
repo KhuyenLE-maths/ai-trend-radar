@@ -109,8 +109,34 @@ CREATE TABLE IF NOT EXISTS raw_items (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+ALTER TABLE crawl_runs ADD COLUMN IF NOT EXISTS failure_kind TEXT;
+
+-- Lịch sử theo từng lần crawl: không CASCADE để không mất dữ liệu đã lưu
+CREATE TABLE IF NOT EXISTS repo_run_snapshots (
+  run_id          BIGINT REFERENCES crawl_runs(id),
+  repo_id         BIGINT REFERENCES repositories(id),
+  stars INT, forks INT, watchers INT, open_issues INT, contributors INT,
+  star_growth_7d  INT,
+  star_growth_30d INT,
+  hot_score       REAL,
+  trending_flag   BOOLEAN,
+  PRIMARY KEY (run_id, repo_id)
+);
+
+-- Chỉ mục các file thô trong data/raw (nội dung nằm trong file)
+CREATE TABLE IF NOT EXISTS raw_archives (
+  id         BIGSERIAL PRIMARY KEY,
+  run_id     BIGINT NOT NULL REFERENCES crawl_runs(id),
+  source     TEXT NOT NULL,
+  path       TEXT NOT NULL UNIQUE,
+  line_count BIGINT NOT NULL,
+  byte_size  BIGINT NOT NULL,
+  sha256     TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_repos_hot      ON repositories (hot_score DESC)      WHERE NOT is_archived;
+CREATE INDEX IF NOT EXISTS idx_repos_hot     ON repositories (hot_score DESC)      WHERE NOT is_archived;
 CREATE INDEX IF NOT EXISTS idx_repos_stars    ON repositories (stars DESC)          WHERE NOT is_archived;
 CREATE INDEX IF NOT EXISTS idx_repos_growth7  ON repositories (star_growth_7d DESC) WHERE NOT is_archived;
 CREATE INDEX IF NOT EXISTS idx_repos_new      ON repositories (first_seen_at DESC);

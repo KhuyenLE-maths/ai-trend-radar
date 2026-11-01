@@ -42,8 +42,17 @@ async def invalidate_all() -> int:
     return n
 
 
-async def acquire_pipeline_lock(ttl: int = 7200) -> bool:
+# TTL ngắn + heartbeat: tiến trình chết thì lock tự hết sớm, crawl dài vẫn giữ được lock
+LOCK_TTL_SECONDS = 900
+
+
+async def acquire_pipeline_lock(ttl: int = LOCK_TTL_SECONDS) -> bool:
     return bool(await get_redis().set("pipeline:lock", "1", nx=True, ex=ttl))
+
+
+async def renew_pipeline_lock(ttl: int = LOCK_TTL_SECONDS) -> None:
+    """SET thay vì EXPIRE: lấy lại lock nếu TTL đã hết trong lúc máy ngủ."""
+    await get_redis().set("pipeline:lock", "1", ex=ttl)
 
 
 async def release_pipeline_lock() -> None:
