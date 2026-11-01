@@ -15,9 +15,9 @@ class Settings(BaseSettings):
 
     # Nguồn dữ liệu
     github_token: str = ""                 # BẮT BUỘC để crawl (5000 req/h)
-    # LLM (tuỳ chọn — không có key thì pipeline bỏ qua bước AI Summary)
-    anthropic_api_key: str = ""
-    summary_model: str = "claude-haiku-4-5"
+    # LLM Gemini (tuỳ chọn — không có key thì pipeline bỏ qua bước AI Summary)
+    gemini_api_key: str = ""
+    summary_model: str = "gemini-3.8-flash"
     summary_daily_limit: int = 20          # số repo tóm tắt tối đa mỗi ngày
 
     # Bảo mật & vận hành

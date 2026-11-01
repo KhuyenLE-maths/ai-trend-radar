@@ -14,7 +14,7 @@ App chạy bằng Docker Compose trên máy này và chỉ mở cho chính máy 
 cp .env.example .env
 ```
 
-Điền `GITHUB_TOKEN`, `ADMIN_TOKEN` và `POSTGRES_PASSWORD`. `ANTHROPIC_API_KEY` là tùy chọn; để trống thì bỏ qua AI Summary.
+Điền `GITHUB_TOKEN`, `ADMIN_TOKEN` và `POSTGRES_PASSWORD`. `GEMINI_API_KEY` là tùy chọn (tạo tại <https://aistudio.google.com/apikey>); để trống thì bỏ qua AI Summary.
 
 ## Các lệnh
 
@@ -61,7 +61,7 @@ Một lần crawl đầy đủ tạo khoảng 8 MB dữ liệu thô nén, tức 
 
 Không có gì tự xóa. `data/` không nằm trong git, nên hãy tự sao chép folder này ra ổ khác nếu muốn phòng hỏng máy. Tắt app trước khi sao chép `data/postgres`; file trong `data/backups` thì sao chép lúc nào cũng được.
 
-Các nguồn trong `data/raw`: `github_rest`, `github_graphql`, `github_readme`, `github_trending`, `hackernews`, `anthropic`. Mỗi dòng là một JSON gồm `ts`, `source`, `request`, `status`, `body`, kể cả phản hồi lỗi.
+Các nguồn trong `data/raw`: `github_rest`, `github_graphql`, `github_readme`, `github_trending`, `hackernews`, `gemini`. Mỗi dòng là một JSON gồm `ts`, `source`, `request`, `status`, `body`, kể cả phản hồi lỗi.
 
 ```bash
 gzip -dc data/raw/2026-10-30/run-20/hackernews.jsonl.gz | head -1

@@ -33,13 +33,20 @@ def raw_dir(tmp_path, monkeypatch):
     return path
 
 
+class Routes(dict):
+    def __init__(self):
+        super().__init__()
+        self.requests: list[httpx.Request] = []
+
+
 @pytest.fixture
 def mock_http(monkeypatch):
     """Thay httpx.AsyncClient: routes là {chuỗi con của URL: (status, body)}."""
-    routes: dict[str, tuple[int, str]] = {}
+    routes = Routes()
     real_client = httpx.AsyncClient
 
     def handler(request: httpx.Request) -> httpx.Response:
+        routes.requests.append(request)
         for key, (status, body) in routes.items():
             if key in str(request.url):
                 return httpx.Response(status, text=body)

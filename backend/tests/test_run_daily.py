@@ -168,7 +168,7 @@ async def test_some_summary_failures_stay_success(pool, calls, monkeypatch):
     assert (await last_run(pool))["status"] == "success"
 
 
-async def test_no_anthropic_key_stays_success(pool, calls, monkeypatch):
+async def test_no_gemini_key_stays_success(pool, calls, monkeypatch):
     async def summarize(pool):
         return {"skipped": True}
     monkeypatch.setattr(mod.summarize, "summarize", summarize)
