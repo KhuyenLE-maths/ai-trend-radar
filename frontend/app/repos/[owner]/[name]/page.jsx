@@ -34,7 +34,7 @@ export default async function RepoDetail({ params }) {
           )}
           <h1 className="text-xl font-semibold text-zinc-100">{repo.full_name}</h1>
           {repo.trending_flag && <span className="badge">📈 Trending</span>}
-          <span className="text-sm font-semibold text-orange-400">🔥 Hot {repo.hot_score}</span>
+          <span className="text-sm font-semibold text-orange-400">🔥 Hot {repo.hot_score?.toFixed(1)}</span>
           <div className="ml-auto flex gap-2 text-sm">
             <a href={repo.url} target="_blank" rel="noreferrer" className="chip hover:text-zinc-100">★ GitHub</a>
             {repo.homepage && (
